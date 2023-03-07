@@ -620,7 +620,7 @@ data = np.load(filePathH2)
 print(data['ranges'].shape)
 
 
-# In[16]:
+# In[47]:
 
 
 from tqdm import tqdm
@@ -750,7 +750,7 @@ for p in range(state_list.shape[2]):
     plt.plot(state_list[:, 0, p], state_list[:, 1, p])
 
 
-# In[27]:
+# In[38]:
 
 
 from pr2_utils import mapCorrelation
@@ -760,11 +760,12 @@ def softmax(x):
     return e_x / np.sum(e_x)
 
 
-def update(OMAP,MAP, particle_state, particle_weight, ranges, angles, N):
+def update(MAP, particle_state, particle_weight, ranges, angles, N):
 
     # Binary map for map correlation
-    map1 = update_omap(OMAP,MAP)
-    map = map1['map']
+    #map1 = update_omap(OMAP,MAP)
+    #map = map1['map']
+    map = ((1 - 1 / (1 + np.exp(MAP['map']))) > 0.5).astype(np.int)
 
     x_im = np.arange(MAP['xmin'], MAP['xmax'] + MAP['res'], MAP['res'])  # x index of each pixel on log-odds map
     y_im = np.arange(MAP['ymin'], MAP['ymax'] + MAP['res'], MAP['res'])  # y index of each pixel on log-odds map
@@ -827,22 +828,64 @@ def update(OMAP,MAP, particle_state, particle_weight, ranges, angles, N):
 
 
 
-# In[28]:
+# In[50]:
 
 
 MAP2 = MAP.copy()
+print(MAP2['map'])
 OMAP2 = OMAP.copy()
 
-for t in range(1,len(encoder_time_stamps)):
+state_list1 = np.zeros([4956, 3, N])
+
+N = 10
+
+state, weights = init_particles(N)
+
+max_state = state[:, np.argmax(weights)]
+ranges =  data['ranges'][:, 0]
+MAP2 = update_map(MAP2,max_state,ranges,angles)
+fig2 = plt.figure()
+plt.imshow(sigmoid(MAP2['map']), cmap = 'hot');
+plt.title("Initial Occupancy grid map")
+
+trajectory_max = np.array([[0],[0]])
+state_list1[0] = state
+
+for t in tqdm(range(1,len(encoder_time_stamps))):
     tau = encoder_time_stamps[t] - encoder_time_stamps[t-1]
     w = imu_sync[t-1]
     #print(state_list[t])
     ranges =  data['ranges'][:, t]
-    state_t = prediction(state_list[t-1].copy(), tau, v[t-1], w)
-    state_list[t] = state_t
-    MAP2 = update(OMAP2,MAP2,state_t,weights,ranges,angles,N)
+    #prediction step
+    state = prediction(state_list1[t-1].copy(), tau, v[t-1], w)
+    state_list1[t] = state
+    
+    #update step
+    state, weights = update(MAP2,state,weights,ranges,angles,N)
+
+    #find max weighted paritcle 
+    particle_max_position = np.argmax(weights)
+    particle_max_state = state[:, particle_max_position]
+    trajectory_max = np.hstack((trajectory_max,particle_max_state[0:2].reshape(2,1)))
+
+    #Update map based on highest weighted particle
+    MAP2 = update_map(MAP2, particle_max_state, ranges, angles)
     #print("state", state_t)
     
+
+
+# In[55]:
+
+
+fig2, ax2 = plt.subplots(1, 1, figsize=(10, 10))
+ax2.set_xlabel("X values")
+ax2.set_ylabel("Y values")
+ax2.set_title("X vs Y")
+for p in range(state_list1.shape[2]):
+    ax2.plot(state_list1[:, 0, p], state_list1[:, 1, p])
+
+print(trajectory_max.shape)
+ax2.plot(trajectory_max[0,:], trajectory_max[1,:], linewidth=2, linestyle='dotted')
 
 
 # In[31]:
