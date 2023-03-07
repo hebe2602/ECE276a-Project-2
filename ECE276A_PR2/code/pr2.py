@@ -219,12 +219,6 @@ print(list(data.values()))
 print(data['counts'].shape)
 
 
-# In[ ]:
-
-
-
-
-
 # In[8]:
 
 
@@ -851,99 +845,64 @@ for t in range(1,len(encoder_time_stamps)):
     
 
 
-# In[ ]:
+# In[31]:
 
 
-e_ind = []
-for i in range(len(encoder_time_stamps)):
-    e_ind_i = [encoder_time_stamps[i],"e",i]
-    e_ind.append(e_ind_i)
-print(len(e_ind))
-lidar_ind = []
-for i in range(len(lidar_time_stamps)):
-    lidar_ind_i = [lidar_time_stamps[i],"lidar",i]
-    lidar_ind.append(lidar_ind_i)
-print(len(lidar_ind))
-e_l_stamps_with_indicies = e_ind + lidar_ind
-sorted_time_stamps = sorted(e_l_stamps_with_indicies, key = lambda x: x[0])
-#print(sorted_time_stamps)
+import numpy as np
+import matplotlib.pyplot as plt
+import cv2
 
-lidar_sync = []
-for i in range(len(encoder_time_stamps)):
-    e_time_stamp = encoder_time_stamps[i]
-    
-    for j in range(len(sorted_time_stamps)):
-        if sorted_time_stamps[j][0] == e_time_stamp and sorted_time_stamps[j][1] == "e":
-            sorted_index = j
-    for t in range(sorted_index,len(sorted_time_stamps)):
-        if sorted_time_stamps[t][1] == "lidar":
-            ind = sorted_time_stamps[t][2]
-            lidar_range_val = lidar_ranges[:,ind]####
-            lidar_sync.append(lidar_range_val)
-            break
-    #if len(lidar_sync) < i:##to get same length on imu_sync as encoder
-        #lidar_sync.append(0)
-#lidar_sync.append(0) ##to get same length on imu_sync as encoder
+disp_path = "/Users/henrikstoklandberg/Documents/UCSD/ECE276A/ECE276A_PR2//data/dataRGBD/Disparity20/"
+rgb_path = "/Users/henrikstoklandberg/Documents/UCSD/ECE276A/ECE276A_PR2//data/dataRGBD/RGB20/"
 
-print(len(lidar_sync))
+def normalize(img):
+  max_ = img.max()
+  min_ = img.min()
+  return (img - min_)/(max_-min_)
 
+if __name__ == '__main__':
 
-# In[ ]:
+  # load RGBD image
+  imd = cv2.imread(disp_path+'disparity20_1.png',cv2.IMREAD_UNCHANGED) # (480 x 640)
+  imc = cv2.imread(rgb_path+'rgb20_1.png')[...,::-1] # (480 x 640 x 3)
 
+  print(imc.shape)
 
-import pr2_utils as utils
+  # convert from disparity from uint16 to double
+  disparity = imd.astype(np.float32)
 
-#utils.test_bresenham2D()
-#utils.test_mapCorrelation()
-MAP = utils.init_map()
-print(MAP)
+  # get depth
+  dd = (-0.00304 * disparity + 3.31)
+  z = 1.03 / dd
 
-Identity_pose
+  # calculate u and v coordinates 
+  v,u = np.mgrid[0:disparity.shape[0],0:disparity.shape[1]]
+  #u,v = np.meshgrid(np.arange(disparity.shape[1]),np.arange(disparity.shape[0]))
 
+  # get 3D coordinates 
+  fx = 585.05108211
+  fy = 585.05108211
+  cx = 315.83800193
+  cy = 242.94140713
+  x = (u-cx) / fx * z
+  y = (v-cy) / fy * z
 
-# In[ ]:
+  # calculate the location of each pixel in the RGB image
+  rgbu = np.round((u * 526.37 + dd*(-4.5*1750.46) + 19276.0)/fx)
+  rgbv = np.round((v * 526.37 + 16662.0)/fy)
+  valid = (rgbu>= 0)&(rgbu < disparity.shape[1])&(rgbv>=0)&(rgbv<disparity.shape[0])
 
+  # display valid RGB pixels
+  fig = plt.figure(figsize=(10, 13.3))
+  ax = fig.add_subplot(projection='3d')
+  ax.scatter(z[valid],-x[valid],-y[valid],c=imc[rgbv[valid].astype(int),rgbu[valid].astype(int)]/255.0)
+  ax.set_xlabel('X')
+  ax.set_ylabel('Y')
+  ax.set_zlabel('Z')
+  ax.view_init(elev=0, azim=180)
+  plt.show()
 
-#synconize encoder with imu
-
-
-# In[ ]:
-
-
-#Differentila-drive kinematic Model
-x_0 = np.array([0,0,0])
-print(len(v))
-x = []
-x.append(x_0)
-for i in range(len(v)):
-    
-    
-
-
-
-
-# In[ ]:
-
-
-#update map
-
-for i in range(np.size(initial_scan_ranges)):
-    bresenham_points = utils.bresenham2D(sx, sy, ex[i], ey[i])
-    bresenham_points_x = bresenham_points[0, :].astype(np.int16)
-    bresenham_points_y = bresenham_points[1, :].astype(np.int16)
-    #print(bresenham_points_x.shape)
-    #print(bresenham_points_y.shape)
-
-    indGood = np.logical_and(
-        np.logical_and(np.logical_and((bresenham_points_x > 1), (bresenham_points_y > 1)), (bresenham_points_x < MAP['sizex'])), (bresenham_points_y < MAP['sizey']))
-    #print(indGood)
-    # Decrease log-odds if cell is free
-    MAP['map'][bresenham_points_x[indGood], bresenham_points_y[indGood]] -= np.log(4).astype(np.int16)
-
-    # Increase log-odds if cell is occupied
-    if ((ex[i] > 1) and (ex[i] < MAP['sizex']) and (ey[i] > 1) and (ey[i] < MAP['sizey'])):
-        MAP['map'][ex[i], ey[i]] += np.log(4)
-
-    # clip range to prevent over-confidence
-MAP['map'] = np.clip(MAP['map'], -10*np.log(4), 10*np.log(4))
+  # display disparity image
+  plt.imshow(normalize(imd), cmap='gray')
+  plt.show()
 
